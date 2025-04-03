@@ -13,11 +13,13 @@ def generate_ride_event():
         "driver_id": random.randint(1, 100),
         "distance_km": round(random.uniform(1, 50), 2),
         "fare_amount": round(random.uniform(5, 150), 2),
+        # Modify this line in generate_ride_event() to use the correct timestamp format:
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+
     }
 
 # Start streaming using socket
-def start_streaming(host="localhost", port=9999):
+def start_streaming(host="localhost", port=9998, num_records=300):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((host, port))
     server_socket.listen(5)  # Increase backlog to allow multiple connections
@@ -27,7 +29,7 @@ def start_streaming(host="localhost", port=9999):
         try:
             conn, addr = server_socket.accept()
             print(f"New client connected: {addr}")
-
+            temp = 0
             while True:
                 try:
                     # Generate a ride event and send it to the connected client
@@ -35,6 +37,11 @@ def start_streaming(host="localhost", port=9999):
                     conn.send((json.dumps(ride_event) + "\n").encode("utf-8"))
                     print("Sent:", ride_event)
                     time.sleep(1)
+                    temp+=1
+                     # After sending 300 records, close the connection
+                    if temp == num_records:
+                        print(f"Sent {num_records} records. Closing connection.")
+                        conn.close()
                 except (BrokenPipeError, ConnectionResetError):
                     print(f"Client {addr} disconnected. Waiting for a new client.")
                     break  # Exit the inner loop and wait for a new client
