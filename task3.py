@@ -1,22 +1,56 @@
-from pyspark.sql.functions import window, to_timestamp
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import window, sum
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
 
-# Convert the timestamp column to TimestampType
-ride_df = ride_df.withColumn("event_time", to_timestamp(col("timestamp"), "yyyy-MM-dd HH:mm:ss"))
 
-# Perform a 5-minute windowed aggregation on fare_amount (sliding by 1 minute)
-windowed_df = ride_df.groupBy(
-    window(col("event_time"), "5 minutes", "1 minute"),
-    "driver_id"
-).agg(
-    sum("fare_amount").alias("total_fare_in_window")
-)
+# Create Spark Session
+spark = SparkSession.builder \
+    .appName("RideSharingAnalytics") \
+    .getOrCreate()
 
-# Output the windowed results to CSV
-query_windowed = windowed_df.writeStream \
-    .outputMode("update") \
+# Define the streaming DataFrame from a socket source
+streaming_df = spark.readStream \
+    .format("socket") \
+    .option("host", "localhost") \
+    .option("port", 9999) \
+    .load()
+
+# Parse JSON data (assuming each line is a JSON string)
+from pyspark.sql.functions import from_json, col
+from pyspark.sql.types import StructType, StringType, DoubleType
+
+schema = StructType() \
+    .add("trip_id", StringType()) \
+    .add("driver_id", StringType()) \
+    .add("distance_km", DoubleType()) \
+    .add("fare_amount", DoubleType()) \
+    .add("timestamp", StringType())
+
+parsed_df = streaming_df.withColumn("data", from_json(col("value"), schema)).select("data.*")
+
+# Convert timestamp column to a proper timestamp type
+from pyspark.sql.functions import to_timestamp
+
+parsed_df = parsed_df.withColumn("event_time", to_timestamp("timestamp"))
+
+# Apply watermark and aggregate fare amounts in 5-minute windows
+aggregated_df = parsed_df \
+    .withWatermark("event_time", "10 minutes") \
+    .groupBy(window(col("event_time"), "5 minutes")) \
+    .agg(sum("fare_amount").alias("total_fare"))
+
+def write_to_csv(batch_df, batch_id):
+    file_path = f"output/window/taxi_data_batch_{batch_id}.csv"
+    batch_df.toPandas().to_csv(file_path, mode="w", index=False)
+    print(f"Saved batch {batch_id} to {file_path}")
+
+
+query = aggregated_df.writeStream \
+    .outputMode("append") \
     .format("csv") \
-    .option("path", "output/windowed_data") \
-    .option("checkpointLocation", "output/checkpoint_windowed") \
+    .foreachBatch(write_to_csv) \
+    .option("path", "output_csv") \
+    .option("header", "true") \
     .start()
 
-query_windowed.awaitTermination()
+query.awaitTermination()

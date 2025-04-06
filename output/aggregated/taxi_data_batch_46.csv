@@ -1,0 +1,2 @@
+trip_id,driver_id,distance_km,fare_amount,timestamp,event_time
+efc61864-6d49-4b4c-8773-d80f550876ec,99,22.92,59.76,2025-04-06 21:04:19,2025-04-06 21:04:19

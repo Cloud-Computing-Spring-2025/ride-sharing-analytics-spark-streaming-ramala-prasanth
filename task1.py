@@ -1,99 +1,42 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, TimestampType
+from pyspark.sql.functions import col, from_json
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, TimestampType
 
-from pyspark.sql.functions import sum, avg
-from pyspark.sql.functions import window, to_timestamp
+# Initialize Spark session
+spark = SparkSession.builder \
+    .appName("StructuredStreamingIngestion") \
+    .getOrCreate()
 
-
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, TimestampType
-
-# Create a Spark session
-spark = SparkSession.builder.appName("RideSharingAnalytics").getOrCreate()
-
-# Define the schema for the ride event
+# Define the schema for incoming JSON data
 schema = StructType([
     StructField("trip_id", StringType(), True),
-    StructField("driver_id", IntegerType(), True),
+    StructField("driver_id", StringType(), True),
     StructField("distance_km", FloatType(), True),
     StructField("fare_amount", FloatType(), True),
-    StructField("timestamp", StringType(), True)
+    StructField("timestamp", TimestampType(), True)
 ])
 
-# Ingest streaming data from the socket
-ride_stream = spark.readStream \
+# Ingest streaming data from the socket (localhost:9999)
+streaming_input_df = spark.readStream \
     .format("socket") \
     .option("host", "localhost") \
-    .option("port", 9998) \
+    .option("port", 9999) \
     .load()
 
-# Parse the incoming JSON messages
-ride_df = ride_stream.select(from_json(col("value"), schema).alias("data")) \
-    .select("data.*")
+# The input data from the socket is a string, so we need to parse it as JSON
+json_df = streaming_input_df.select(from_json(col("value"), schema).alias("data"))
 
-processed_count = 0
+# Extract the fields from the parsed JSON
+parsed_df = json_df.select("data.trip_id", "data.driver_id", "data.distance_km", "data.fare_amount", "data.timestamp")
 
-# Define a function to stop the stream after 100 records
-def stop_stream(query):
-    global processed_count
-    if processed_count >= 100:
-        query.stop()
-
-
-# Print the parsed data to the console
-query = ride_df.writeStream \
+# Store the parsed streaming data into CSV format in the "output" folder
+query = parsed_df.writeStream \
     .outputMode("append") \
-    .format("console") \
-    .start()
-
-query.awaitTermination(timeout=60)
-
-
-
-
-
-# Aggregate data in real-time by driver_id
-aggregated_df = ride_df.groupBy("driver_id") \
-    .agg(
-        sum("fare_amount").alias("total_fare"),
-        avg("distance_km").alias("avg_distance")
-    )
-
-# Output the aggregation results to CSV
-query_agg = aggregated_df.writeStream \
-    .outputMode("complete") \
     .format("csv") \
-    .option("path", "output/aggregated_data") \
-    .option("checkpointLocation", "output/checkpoint_aggregated") \
+    .option("path", "output/streaming_data") \
+    .option("checkpointLocation", "output/checkpoints") \
+    .option("header", True) \
     .start()
 
-query_agg.awaitTermination(timeout=60)
-
-
-
-
-
-
-
-# Convert the timestamp column to TimestampType
-ride_df = ride_df.withColumn("event_time", to_timestamp(col("timestamp"), "yyyy-MM-dd HH:mm:ss"))
-
-# Perform a 5-minute windowed aggregation on fare_amount (sliding by 1 minute)
-windowed_df = ride_df.groupBy(
-    window(col("event_time"), "5 minutes", "1 minute"),
-    "driver_id"
-).agg(
-    sum("fare_amount").alias("total_fare_in_window")
-)
-
-# Output the windowed results to CSV
-query_windowed = windowed_df.writeStream \
-    .outputMode("update") \
-    .format("csv") \
-    .option("path", "output/windowed_data") \
-    .option("checkpointLocation", "output/checkpoint_windowed") \
-    .start()
-
-query_windowed.awaitTermination(timeout=60)
+# Wait for the termination of the stream
+query.awaitTermination()

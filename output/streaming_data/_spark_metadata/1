@@ -1,0 +1,3 @@
+v1
+{"path":"file:///workspaces/ride-sharing-analytics-spark-streaming-ramala-prasanth/output/streaming_data/part-00000-f0c5f925-0915-4928-a6e8-3a84402b1dd1-c000.csv","size":130,"isDir":false,"modificationTime":1743972960720,"blockReplication":1,"blockSize":33554432,"action":"add"}
+{"path":"file:///workspaces/ride-sharing-analytics-spark-streaming-ramala-prasanth/output/streaming_data/part-00001-cb8a8397-e0c5-4dd7-b2d8-eccb8c3cf04f-c000.csv","size":129,"isDir":false,"modificationTime":1743972960747,"blockReplication":1,"blockSize":33554432,"action":"add"}
